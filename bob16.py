@@ -703,5 +703,10 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    finally:
-        ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
+   finally:
+        # Vérifier si on est sous Windows avant d'appeler la fonction Windows
+        if platform.system() == "Windows":
+            try:
+                ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
+            except Exception as e:
+                print(f"Erreur lors du reset de SetThreadExecutionState : {e}")
