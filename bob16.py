@@ -24,6 +24,7 @@ import time
 import pyproj
 from pathlib import Path
 import logging
+import platform
 
 # Configuration de la page Streamlit
 st.set_page_config(layout="wide", page_title="Analyse Bathymétrique GEBCO")
@@ -33,9 +34,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Empêcher la mise en veille de l'ordinateur
-ES_CONTINUOUS = 0x80000000
-ES_SYSTEM_REQUIRED = 0x00000001
-ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+if platform.system() == "Windows":
+    ES_CONTINUOUS = 0x80000000
+    ES_SYSTEM_REQUIRED = 0x00000001
+    ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
 
 # Initialisation des variables de session
 def init_session_state():
