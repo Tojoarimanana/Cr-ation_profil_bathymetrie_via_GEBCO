@@ -35,9 +35,12 @@ logger = logging.getLogger(__name__)
 
 # Empêcher la mise en veille de l'ordinateur
 if platform.system() == "Windows":
-    ES_CONTINUOUS = 0x80000000
-    ES_SYSTEM_REQUIRED = 0x00000001
-    ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+    try:
+        ES_CONTINUOUS = 0x80000000
+        ES_SYSTEM_REQUIRED = 0x00000001
+        ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+    except Exception as e:
+        logger.warning(f"Impossible d'empêcher la mise en veille : {e}")
 
 # Initialisation des variables de session
 def init_session_state():
