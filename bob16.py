@@ -703,8 +703,7 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-   finally:
-        # Vérifier si on est sous Windows avant d'appeler la fonction Windows
+    finally:
         if platform.system() == "Windows":
             try:
                 ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
