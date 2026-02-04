@@ -33,11 +33,6 @@ st.set_page_config(layout="wide", page_title="Analyse Bathymétrique GEBCO")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Empêcher la mise en veille de l'ordinateur
-ES_CONTINUOUS = 0x80000000
-ES_SYSTEM_REQUIRED = 0x00000001
-ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
-
 # Initialisation des variables de session
 def init_session_state():
     defaults = {
@@ -253,7 +248,7 @@ def extract_polyline_profile(data, transform, coords, sample_interval=0.1, sampl
         if not np.any(valid_mask):
             st.error("Aucune donnée valide pour l'interpolation IDW.")
             logger.error("Aucune donnée valide pour l'interpolation IDW.")
-            return np.array(distances), np.array(profile), coords, sample_points, "Inconnu", "Inconnu"
+            return np.array(distances), np.array(profile), coords, [], "Inconnu", "Inconnu"
 
         interp_distances = np.array([p["distance"] for p in sample_points])[valid_mask]
         interp_depths = np.array([p["depth"] for p in sample_points])[valid_mask]
@@ -370,9 +365,6 @@ def export_to_vtk(all_points, filename):
         if not all_points:
             st.error("Aucun point à exporter dans le fichier VTK.")
             return None
-        # Conversion des coordonnées géodésiques (lon, lat) vers UTM (EPSG:32738)
-        transformer = pyproj.Transformer.from_crs("epsg:4326", "epsg:32738", always_xy=True)
-        utm_x, utm_y = transformer.transform([p["lon"] for p in all_points], [p["lat"] for p in all_points])
         
         n = len(all_points)
         with open(filename, 'w') as f:
@@ -381,15 +373,19 @@ def export_to_vtk(all_points, filename):
             f.write("ASCII\n")
             f.write("DATASET POLYDATA\n")
             f.write(f"POINTS {n} float\n")
-            for x, y, p in zip(utm_x, utm_y, all_points):
-                f.write(f"{x:.2f} {y:.2f} {p['depth_positive']:.2f}\n")
+            for p in all_points:
+                # Utiliser directement lon, lat, depth_positive sans conversion
+                lon = p["lon"]
+                lat = p["lat"]
+                depth = p["depth_positive"] if not np.isnan(p["depth_positive"]) else 0.0
+                f.write(f"{lon:.6f} {lat:.6f} {depth:.2f}\n")
             f.write(f"LINES 1 {n+1}\n")
             f.write(f"{n} " + " ".join(str(i) for i in range(n)) + "\n")
             f.write(f"POINT_DATA {n}\n")
             f.write("SCALARS CORR_DEPTH float 1\n")
             f.write("LOOKUP_TABLE default\n")
             for p in all_points:
-                depth = p['depth_positive'] if not np.isnan(p['depth_positive']) else 0.0
+                depth = p["depth_positive"] if not np.isnan(p["depth_positive"]) else 0.0
                 f.write(f"{depth:.2f}\n")
         logger.info(f"VTK exporté : {filename}")
         return filename
