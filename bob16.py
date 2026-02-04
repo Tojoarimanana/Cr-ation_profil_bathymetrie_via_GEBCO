@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 # Empêcher la mise en veille de l'ordinateur
 def activer_anti_veille():
+    # Définir system TOUT DE SUITE
     system = platform.system()
     print(f"Plateforme détectée : {system} ({sys.platform})")
     
@@ -42,39 +43,38 @@ def activer_anti_veille():
         try:
             ES_CONTINUOUS      = 0x80000000
             ES_SYSTEM_REQUIRED = 0x00000001
-            # ES_DISPLAY_REQUIRED = 0x00000002  # décommente si tu veux aussi garder l'écran allumé
             
             ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
             print("Anti-veille Windows activé (SetThreadExecutionState).")
         except AttributeError:
-            print("Erreur : ctypes.windll non disponible (pas Windows ?)")
+            print("ctypes.windll non disponible → probablement pas Windows malgré la détection.")
         except Exception as e:
             print(f"Échec anti-veille Windows : {e}")
     
     elif system == "Linux":
         try:
-            # Méthode systemd-inhibit (la plus fiable sur Ubuntu, Fedora, etc.)
+            print("Tentative avec systemd-inhibit...")
             inhibit_cmd = [
                 "systemd-inhibit",
                 "--what=idle:sleep:shutdown",
                 "--who=Script bathymétrie GEBCO",
-                "--why=Traitement long des données – empêcher la veille",
+                "--why=Traitement long – empêcher la veille",
                 "--mode=block",
                 sys.executable
-            ] + sys.argv  # relance le script lui-même sous inhibition
+            ] + sys.argv
             
-            print("Relance avec systemd-inhibit pour bloquer la veille...")
             subprocess.Popen(inhibit_cmd)
-            sys.exit(0)  # termine l'instance originale
+            print("Script relancé sous systemd-inhibit → sortie de l'instance originale.")
+            sys.exit(0)
         except FileNotFoundError:
-            print("systemd-inhibit non trouvé → essaie d'installer caffeine ou utilise wakepy.")
+            print("systemd-inhibit non trouvé → pas d'anti-veille automatique.")
         except Exception as e:
-            print(f"Échec systemd-inhibit : {e}")
+            print(f"Erreur lors de systemd-inhibit : {e}")
     
     else:
-        print("Plateforme non gérée pour l'anti-veille automatique.")
+        print(f"Plateforme non gérée pour l'anti-veille : {system}")
 
-# Appelle au début
+# Appel au début du script
 activer_anti_veille()
 
 # Initialisation des variables de session
