@@ -33,6 +33,8 @@ st.set_page_config(layout="wide", page_title="Analyse Bathymétrique GEBCO")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+
 # Initialisation des variables de session
 def init_session_state():
     defaults = {
@@ -773,7 +775,26 @@ def main():
                                     file_name=f"{st.session_state.selected_polyline}_profile.zip",
                                     mime="application/zip"
                                 )
+ # --- Footer avec ton nom ---
+    st.markdown(
+        """
+        <style>
+        .footer {
+            position: fixed;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+            background-color: #f1f1f1;
+            color: #333;
+            text-align: center;
+            padding: 5px;
+            font-size: 18px;
+        }
+        </style>
+        <div class="footer">
+            Conçu par <b>RANAIVOSOA Tojoarimanana Hiratriniala Tel :+26133 51 880 19</b>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-# Nettoyage final
-if __name__ == "__main__":
-    
