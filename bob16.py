@@ -7,6 +7,7 @@ from shapely.geometry import LineString
 import pyvista as pv
 import plotly.graph_objects as go
 import folium
+from folium.plugins import MousePosition  # Ajout du plugin MousePosition
 from streamlit_folium import st_folium
 from io import BytesIO
 import zipfile
@@ -24,7 +25,6 @@ import time
 import pyproj
 from pathlib import Path
 import logging
-import platform
 
 # Configuration de la page Streamlit
 st.set_page_config(layout="wide", page_title="Analyse Bathymétrique GEBCO")
@@ -34,13 +34,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Empêcher la mise en veille de l'ordinateur
-if platform.system() == "Windows":
-    try:
-        ES_CONTINUOUS = 0x80000000
-        ES_SYSTEM_REQUIRED = 0x00000001
-        ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
-    except Exception as e:
-        logger.warning(f"Impossible d'empêcher la mise en veille : {e}")
+ES_CONTINUOUS = 0x80000000
+ES_SYSTEM_REQUIRED = 0x00000001
+ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
 
 # Initialisation des variables de session
 def init_session_state():
@@ -51,7 +47,9 @@ def init_session_state():
         "sample_interval_m": 5,
         "profile_data": None,
         "tiff_data": None,
-        "vtk_data": None
+        "vtk_data": None,
+        "fos_data": None,  # Stocke le contenu brut du fichier CSV FOS
+        "fos_points": []   # Stocke les points FOS chargés pour persistance
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -76,6 +74,28 @@ def load_geotiff(file_obj):
         st.error(f"Erreur lors du chargement du GeoTIFF : {str(e)}")
         logger.error(f"Erreur GeoTIFF : {str(e)}")
         return None, None, None, None
+
+# Fonction pour charger un fichier CSV FOS
+def load_fos_csv(csv_file):
+    try:
+        # Charger le CSV en DataFrame
+        df = pd.read_csv(csv_file)
+        # Vérifier que l'en-tête contient les colonnes requises
+        required_columns = ["FOS_ID", "Latitude", "Longitude", "Water_depth", "Profile", "Type"]
+        if not all(col in df.columns for col in required_columns):
+            missing_cols = [col for col in required_columns if col not in df.columns]
+            raise ValueError(f"Colonnes manquantes dans le CSV : {missing_cols}")
+        # Vérifier que les colonnes Latitude et Longitude contiennent des valeurs valides
+        if df["Latitude"].isnull().any() or df["Longitude"].isnull().any():
+            raise ValueError("Les colonnes Latitude ou Longitude contiennent des valeurs nulles.")
+        logger.info(f"CSV FOS chargé: {len(df)} points, colonnes={list(df.columns)}")
+        # Convertir le DataFrame en liste de dictionnaires pour persistance
+        fos_points = df.to_dict('records')
+        return fos_points
+    except Exception as e:
+        st.error(f"Erreur lors du chargement du CSV FOS : {str(e)}")
+        logger.error(f"Erreur CSV FOS : {str(e)}")
+        return None
 
 # Fonction pour charger et ajouter un fichier VTK
 def load_and_add_vtk(vtk_file):
@@ -233,7 +253,7 @@ def extract_polyline_profile(data, transform, coords, sample_interval=0.1, sampl
         if not np.any(valid_mask):
             st.error("Aucune donnée valide pour l'interpolation IDW.")
             logger.error("Aucune donnée valide pour l'interpolation IDW.")
-            return np.array(distances), np.array(profile), coords, sample_points, "Inconnu", "Inconnu"
+            return np.array(distances), np.array(profile), coords, [], "Inconnu", "Inconnu"
 
         interp_distances = np.array([p["distance"] for p in sample_points])[valid_mask]
         interp_depths = np.array([p["depth"] for p in sample_points])[valid_mask]
@@ -332,10 +352,10 @@ def export_to_las(all_points, filename):
         if not all_points:
             st.error("Aucun point à exporter dans le fichier LAS.")
             return None
-        points = np.array([[p["lat"], p["lon"], p["depth_positive"]] for p in all_points])  # Lat, Lon, Depth
+        points = np.array([[ p["lat"], p["lon"], p["depth_positive"]] for p in all_points])  # Lat, Lon, Depth
         las = laspy.create(point_format=2, file_version="1.2")
-        las.y = points[:, 0]  # Latitude (y)
         las.x = points[:, 1]  # Longitude (x)
+        las.y = points[:, 0]  # Latitude (y)
         las.z = points[:, 2]  # Depth
         las.write(filename)
         logger.info(f"LAS exporté : {filename}")
@@ -350,11 +370,28 @@ def export_to_vtk(all_points, filename):
         if not all_points:
             st.error("Aucun point à exporter dans le fichier VTK.")
             return None
-        points = np.array([[p["lat"], p["lon"], p["depth_positive"]] for p in all_points])  # Lat, Lon, Depth
-        polyline = pv.PolyData(points)
-        polyline.lines = np.array([len(all_points), *range(len(all_points))])
-        polyline["Depth (m)"] = [p["depth_positive"] for p in all_points]
-        polyline.save(filename, binary=True)
+        
+        n = len(all_points)
+        with open(filename, 'w') as f:
+            f.write("# vtk DataFile Version 4.2\n")
+            f.write("Bathymetric Profile\n")
+            f.write("ASCII\n")
+            f.write("DATASET POLYDATA\n")
+            f.write(f"POINTS {n} float\n")
+            for p in all_points:
+                # Utiliser directement lon, lat, depth_positive sans conversion
+                lon = p["lon"]
+                lat = p["lat"]
+                depth = p["depth_positive"] if not np.isnan(p["depth_positive"]) else 0.0
+                f.write(f"{lon:.6f} {lat:.6f} {depth:.2f}\n")
+            f.write(f"LINES 1 {n+1}\n")
+            f.write(f"{n} " + " ".join(str(i) for i in range(n)) + "\n")
+            f.write(f"POINT_DATA {n}\n")
+            f.write("SCALARS CORR_DEPTH float 1\n")
+            f.write("LOOKUP_TABLE default\n")
+            for p in all_points:
+                depth = p["depth_positive"] if not np.isnan(p["depth_positive"]) else 0.0
+                f.write(f"{depth:.2f}\n")
         logger.info(f"VTK exporté : {filename}")
         return filename
     except Exception as e:
@@ -423,13 +460,16 @@ def create_zip_file(selected_polyline, bathymetry_data, transform, sample_interv
 def main():
     init_session_state()
     st.title("Analyse Bathymétrique GEBCO")
-    st.markdown("Chargez un fichier GeoTIFF GEBCO et un fichier VTK (optionnel) pour tracer des polylignes et extraire des profils bathymétriques.")
+    st.markdown("Chargez un fichier GeoTIFF GEBCO, un fichier VTK (optionnel) et un fichier CSV FOS (optionnel) pour tracer des polylignes, afficher des points FOS et extraire des profils bathymétriques.")
 
     # Chargement des fichiers
     uploaded_file = st.file_uploader("Charger un fichier GeoTIFF GEBCO", type=["tif", "tiff"])
     vtk_file = st.file_uploader("Charger un fichier VTK (optionnel)", type=["vtk"])
+    fos_file = st.file_uploader("Charger un fichier CSV FOS (optionnel)", type=["csv"])
 
     bathymetry_data, transform, bounds, crs = None, None, None, None
+
+    # Chargement GeoTIFF
     if uploaded_file is not None:
         if st.session_state.tiff_data != uploaded_file.getbuffer():
             st.session_state.tiff_data = uploaded_file.getbuffer()
@@ -451,9 +491,18 @@ def main():
                 if lon is not None:
                     st.success(f"VTK chargé: {len(lon)} points convertis.")
 
+            # Chargement CSV FOS
+            if fos_file is not None and st.session_state.fos_data != fos_file.getbuffer():
+                st.session_state.fos_data = fos_file.getbuffer()
+                with st.spinner("Chargement du fichier CSV FOS..."):
+                    fos_points = load_fos_csv(BytesIO(st.session_state.fos_data))
+                if fos_points is not None:
+                    st.session_state.fos_points = fos_points  # Stocker les points pour persistance
+                    st.success(f"CSV FOS chargé: {len(fos_points)} points.")
+
             # Carte bathymétrique
             st.header("Carte Bathymétrique")
-            st.markdown("**Instructions**: Clic gauche pour ajouter des points à la polyligne, clic droit pour terminer.")
+            st.markdown("**Instructions**: Clic gauche pour ajouter des points à la polyligne, clic droit pour terminer. Les coordonnées de la souris sont affichées sur la carte.")
 
             center = [(bounds.bottom + bounds.top) / 2, (bounds.left + bounds.right) / 2]
             if st.session_state.map_state["center"] is None:
@@ -465,6 +514,17 @@ def main():
                 tiles="cartodbpositron",
                 max_bounds=True
             )
+
+            # Ajout du plugin MousePosition
+            mouse_position = MousePosition(
+                position="topright",
+                separator=" | ",
+                empty_string="NaN",
+                lng_first=False,
+                num_digits=6,
+                prefix="Lat/Lon:"
+            )
+            m.add_child(mouse_position)
 
             # Ajout du fond bathymétrique
             encoded_image = create_image_overlay(bathymetry_data, bounds)
@@ -487,7 +547,7 @@ def main():
                     popup=f"Polyligne: {poly['name']}"
                 ).add_to(m)
 
-            # Ajout des marqueurs VTK
+            # Affichage des points VTK
             if lon is not None:
                 for lo, la, depth in zip(lon, lat, z):
                     folium.CircleMarker(
@@ -497,6 +557,26 @@ def main():
                         fill=True,
                         fill_opacity=0.7,
                         popup=f"Profondeur: {depth:.2f} m"
+                    ).add_to(m)
+
+            # Affichage des points FOS persistants
+            if st.session_state.fos_points:
+                for point in st.session_state.fos_points:
+                    popup_content = (
+                        f"FOS_ID: {point['FOS_ID']}<br>"
+                        f"Latitude: {point['Latitude']:.6f}<br>"
+                        f"Longitude: {point['Longitude']:.6f}<br>"
+                        f"Profondeur: {point['Water_depth']:.2f} m<br>"
+                        f"Profil: {point['Profile']}<br>"
+                        f"Type: {point['Type']}"
+                    )
+                    folium.CircleMarker(
+                        location=[point['Latitude'], point['Longitude']],
+                        radius=2,
+                        color='red',
+                        fill=True,
+                        fill_opacity=0.4,
+                        popup=popup_content
                     ).add_to(m)
 
             # Ajout du plugin Draw
@@ -573,9 +653,9 @@ def main():
                     sample_interval_m = st.slider(
                         "Pas d'échantillonnage (mètres)",
                         min_value=1,
-                        max_value=20,
+                        max_value=100,
                         value=st.session_state.sample_interval_m,
-                        step=1
+                        step=5
                     )
                     submit_button = st.form_submit_button("Extraire le profil")
 
@@ -698,14 +778,32 @@ def main():
                                     file_name=f"{st.session_state.selected_polyline}_profile.zip",
                                     mime="application/zip"
                                 )
+ # --- Footer avec ton nom ---
+    st.markdown(
+        """
+        <style>
+        .footer {
+            position: fixed;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+            background-color: #f1f1f1;
+            color: #333;
+            text-align: center;
+            padding: 5px;
+            font-size: 18px;
+        }
+        </style>
+        <div class="footer">
+            Conçu par <b>RANAIVOSOA Tojoarimanana Hiratriniala Tel :+26133 51 880 19</b>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 # Nettoyage final
 if __name__ == "__main__":
     try:
         main()
     finally:
-        if platform.system() == "Windows":
-            try:
-                ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
-            except Exception as e:
-                print(f"Erreur lors du reset de SetThreadExecutionState : {e}")
+        ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
