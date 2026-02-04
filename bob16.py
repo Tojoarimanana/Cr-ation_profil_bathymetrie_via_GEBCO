@@ -34,9 +34,48 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Empêcher la mise en veille de l'ordinateur
-ES_CONTINUOUS = 0x80000000
-ES_SYSTEM_REQUIRED = 0x00000001
-ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+def activer_anti_veille():
+    system = platform.system()
+    print(f"Plateforme détectée : {system} ({sys.platform})")
+    
+    if system == "Windows":
+        try:
+            ES_CONTINUOUS      = 0x80000000
+            ES_SYSTEM_REQUIRED = 0x00000001
+            # ES_DISPLAY_REQUIRED = 0x00000002  # décommente si tu veux aussi garder l'écran allumé
+            
+            ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+            print("Anti-veille Windows activé (SetThreadExecutionState).")
+        except AttributeError:
+            print("Erreur : ctypes.windll non disponible (pas Windows ?)")
+        except Exception as e:
+            print(f"Échec anti-veille Windows : {e}")
+    
+    elif system == "Linux":
+        try:
+            # Méthode systemd-inhibit (la plus fiable sur Ubuntu, Fedora, etc.)
+            inhibit_cmd = [
+                "systemd-inhibit",
+                "--what=idle:sleep:shutdown",
+                "--who=Script bathymétrie GEBCO",
+                "--why=Traitement long des données – empêcher la veille",
+                "--mode=block",
+                sys.executable
+            ] + sys.argv  # relance le script lui-même sous inhibition
+            
+            print("Relance avec systemd-inhibit pour bloquer la veille...")
+            subprocess.Popen(inhibit_cmd)
+            sys.exit(0)  # termine l'instance originale
+        except FileNotFoundError:
+            print("systemd-inhibit non trouvé → essaie d'installer caffeine ou utilise wakepy.")
+        except Exception as e:
+            print(f"Échec systemd-inhibit : {e}")
+    
+    else:
+        print("Plateforme non gérée pour l'anti-veille automatique.")
+
+# Appelle au début
+activer_anti_veille()
 
 # Initialisation des variables de session
 def init_session_state():
