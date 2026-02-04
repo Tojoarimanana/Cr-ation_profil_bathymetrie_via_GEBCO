@@ -27,7 +27,7 @@ from pathlib import Path
 import logging
 
 # Configuration de la page Streamlit
-st.set_page_config(layout="wide", page_title="Analyse Bathymétrique GEBCO")
+st.set_page_config(layout="wide", page_title="Outils de création de profiles bathymétrique via geotif du  GEBCO")
 
 # Configuration du logging pour le débogage
 logging.basicConfig(level=logging.INFO)
