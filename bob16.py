@@ -776,7 +776,4 @@ def main():
 
 # Nettoyage final
 if __name__ == "__main__":
-    try:
-        main()
-    finally:
-        ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
+    
